@@ -32,12 +32,47 @@
 
 using namespace caffe;
 
-unsigned int load_labels(char* path, char** labels) {
-
+unsigned int load_labels(char* path, char*** labels) {
+  unsigned int n_labels = 0;
+  FILE* handle = fopen(path, "r");
+  // Count the number of lines (labels).
+  char input;
+  do {
+    input = getc(handle);
+    if(input == '\n' || input == EOF) {
+      n_labels++;
+    }
+  } while(input != EOF);
+  rewind(handle);
+  // Load the labels into memory.
+  char** list = (char**)malloc(sizeof(char*) * n_labels);
+  for(unsigned int index = 0; index < n_labels; index++) {
+    fpos_t position;
+    fgetpos(handle, &position);
+    unsigned int length = 0;
+    do {
+      input = getc(handle);
+      if(input != '\n' && input != EOF) {
+        length++;
+      }
+    } while(input != '\n' && input != EOF);
+    fsetpos(handle, &position);
+    list[index] = (char*)malloc(sizeof(char) * length + 1);
+    for(unsigned int offset = 0; offset < length; offset++) {
+      list[index][offset] = getc(handle);
+    }
+    list[index][length] = '\0';
+    getc(handle); // Ignore the newline character.
+  }
+  *labels = list;
+  return n_labels;
 }
 
-void destroy_labels(char** labels, int n_labels) {
-
+void destroy_labels(char** labels, unsigned int n_labels) {
+  for(unsigned int index = 0; index < n_labels; index++) {
+    free(labels[index]);
+  }
+  free(labels);
 }
 
 int main(int argc, char** argv) {
@@ -53,7 +88,7 @@ int main(int argc, char** argv) {
   cnn.CopyTrainedLayersFrom(argv[2]);
   // Load the label set.
   char** labels;
-  unsigned int n_labels = load_labels(argv[3], labels);
+  unsigned int n_labels = load_labels(argv[3], &labels);
   // Allocate resources for frame handling.
   IplImage* cnn_input = cvCreateImage(cvSize(224, 224), 8, 3);
   IplImage* cropped_frame = cvCreateImage(cvSize(480, 480), 8, 3);
@@ -87,4 +122,5 @@ int main(int argc, char** argv) {
   cvReleaseImage(&cnn_input);
   destroy_labels(labels, n_labels);
   cvDestroyWindow("Ft. Lauderdale Machine Learning Meetup");
+  exit(0);
 }
