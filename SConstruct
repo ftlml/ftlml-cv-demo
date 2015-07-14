@@ -6,6 +6,7 @@ build_env.Append(CCFLAGS = ['-Wall', '-Wextra'])
 
 # Build the demo.
 build_env.Program('src/nnet.cpp', LIBS = ['caffe',
+                                          'glog',
                                           'opencv_core',
                                           'opencv_highgui',
                                           'opencv_imgproc',

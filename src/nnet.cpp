@@ -75,6 +75,24 @@ void destroy_labels(char** labels, unsigned int n_labels) {
   free(labels);
 }
 
+char* get_prediction(char** labels, unsigned int n_labels, float* output) {
+  unsigned int max_index = 0;
+  float max = 0.0f;
+  for(unsigned int index = 0; index < n_labels; index++) {
+    if(max < output[index]) {
+      max_index = index;
+      max = output[index];
+    }
+  }
+  return labels[max_index];
+}
+
+void add_caption(IplImage* cropped_frame, char* prediction) {
+  CvFont font;
+  cvInitFont(&font, CV_FONT_HERSHEY_PLAIN, 1.5, 1.5, 0, 2, 8);
+  cvPutText(cropped_frame, prediction, cvPoint(10, 30), &font, CV_RGB(255, 255, 255));
+}
+
 int main(int argc, char** argv) {
   if(argc != 4) {
     printf("Usage: nnet path/to/prototxt path/to/caffemodel path/to/labels\n");
@@ -83,12 +101,17 @@ int main(int argc, char** argv) {
   // Initialize Caffe.
   Caffe::set_mode(Caffe::GPU);
   Caffe::SetDevice(0);
-  // Initilize the Convolutional neural network.
+  // Initilize the neural network.
   Net<float> cnn(argv[1], TEST);
   cnn.CopyTrainedLayersFrom(argv[2]);
+  float mean[3] = {104, 117, 123};
   // Load the label set.
   char** labels;
   unsigned int n_labels = load_labels(argv[3], &labels);
+  // Allocate resources for interacting with Caffe.
+  Blob<float> blob(1, 3, 224, 224);
+  vector<Blob<float>*> input;
+  float output[n_labels];
   // Allocate resources for frame handling.
   IplImage* cnn_input = cvCreateImage(cvSize(224, 224), 8, 3);
   IplImage* cropped_frame = cvCreateImage(cvSize(480, 480), 8, 3);
@@ -106,10 +129,29 @@ int main(int argc, char** argv) {
     cvSetImageROI(frame, crop_rect);
     cvCopy(frame, cropped_frame, NULL);
     cvResetImageROI(frame);
-    // Prepare the frame as an input to the convolutional neural network.
+    // Prepare the frame as an input to the neural network.
     cvResize(cropped_frame, cnn_input);
-
+    // Subtract the mean from from the images and copy into a caffe blob.
+    for(unsigned char channel = 0; channel < 3; channel++) {
+      for(y = 0; y < 224; y++) {
+        for(x = 0; x < 224; x++) {
+          unsigned char pixel = cnn_input->imageData[y * cnn_input->widthStep + x * cnn_input->nChannels + channel];
+          blob.mutable_cpu_data()[blob.offset(0, channel, y, x)] = (float)(pixel - mean[channel]);
+        }
+      }
+    }
+    input.push_back(&blob);
+    // Feed the blob through the neural network.
+    float loss;
+    const vector<Blob<float>*>& result = cnn.Forward(input, &loss);
+    input.clear();
+    // Copy the resuls out of the blob.
+    for(unsigned int index = 0; index < n_labels; index++) {
+      output[index] = result[0]->cpu_data()[index];
+    }
     // Display the results.
+    char* prediction = get_prediction(labels, n_labels, output);
+    add_caption(cropped_frame, prediction);
     cvShowImage("Ft. Lauderdale Machine Learning Meetup", cropped_frame);
     // If the user hits Esc end the prediction loop.
     if(cvWaitKey(50) == 27) {
